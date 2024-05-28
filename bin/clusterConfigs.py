@@ -7,7 +7,7 @@ pd.set_option('display.max_columns', None)
 df = pd.read_table(sys.argv[1], header = None).dropna(axis=0)
 groups = df.groupby(by=[3])
 for name, group in groups:
-    if len(group) > 10 and name != '-':
+    if len(group) > 10: # and name != '-':
         #print(name[0])+'\t'+str(len(group)))
         distances = group[4].values
         components = [[int(x) for x in s.split('.')] for s in distances]

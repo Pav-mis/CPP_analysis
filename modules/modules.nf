@@ -34,10 +34,12 @@ process GET_CYS_CONFIGS {
     path protiens
 
     output:
-    path "${protiens.baseName}.cys.txt"
+    path "${protiens.baseName}.cys.txt", emit: configs
+    path "${protiens.baseName}_mature.fasta", emit: fasta
 
     """
     perl $projectDir/bin/cys_classify.pl ${protiens} ${protiens.baseName}.cys.txt
+    perl $projectDir/bin/mature_seqs.pl ${protiens} ${protiens.baseName}_mature.fasta
     """
 }
 
@@ -155,4 +157,60 @@ process BED_TO_TABLE{
     """
     python3 $projectDir/bin/bed2table.py ${bed} ${cys}
     """
+}
+
+process CALC_HYDROPHOBICITY{
+    container 'docker://quay.io/biocontainers/emboss:6.6.0--hdde3b0b_8'
+    publishDir "${params.outDir}"
+
+    input:
+    path mature_seqs
+
+    output:
+    path "combined_hydrophobicity.txt"
+
+    """
+    mkdir -p split_sequences
+
+    awk 'BEGIN {output_file = ""} 
+         /^>/ {
+             if (output_file != "") close(output_file)
+             header = substr(\$0, 2)
+             gsub(/ /, "_", header)
+             gsub(/[^a-zA-Z0-9_#]/, "", header)
+             output_file = "split_sequences/" header ".fasta"
+             print \$0 > output_file
+         }
+         /^[^>]/ { print \$0 >> output_file }
+        ' ${mature_seqs}
+
+    for file in split_sequences/*.fasta; do
+        line_count=\$(wc -l < "\$file")
+        if [ "\$line_count" -gt 1 ]; then
+            second_line=\$(sed -n '2p' "\$file")
+            second_line_length=\$(echo -n "\$second_line" | wc -m)
+            if [ "\$second_line_length" -gt 1 ]; then
+                base_name=\$(basename "\$file" .fasta)
+                pepwindowall -sequence "\$file" -graph data -window 15 -goutfile "\$base_name"
+            fi
+        fi
+    done
+
+    for filename in *.dat; do
+        base_name="\${filename%?????}"
+
+        # Extract hydropathy values, calculate min and max, and compute the difference
+        hydropathy_values=\$(grep -v '^#' "\$filename" | awk '{print \$2}')
+        min_value=\$(echo "\$hydropathy_values" | sort -n | head -n 1)
+        max_value=\$(echo "\$hydropathy_values" | sort -n | tail -n 1)
+        difference=\$(awk -v min="\$min_value" -v max="\$max_value" 'BEGIN {print max - min}')
+
+        # Append the result to the output file
+        echo "\$base_name \$difference" >> combined_hydrophobicity.txt
+    done
+    
+    #rm *.dat
+    """
+
+
 }

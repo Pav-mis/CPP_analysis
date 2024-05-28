@@ -6,9 +6,10 @@ workflow CYS_CONFIGS {
 
     main:
     GET_CYS_CONFIGS(intermediate)
-    CLUSTER_CONFIGS(GET_CYS_CONFIGS.out)
+    CLUSTER_CONFIGS(GET_CYS_CONFIGS.out.configs)
 
     emit:
-    configs = GET_CYS_CONFIGS.out
+    configs = GET_CYS_CONFIGS.out.configs
     positions = CLUSTER_CONFIGS.out
+    fasta = GET_CYS_CONFIGS.out.fasta
 }
