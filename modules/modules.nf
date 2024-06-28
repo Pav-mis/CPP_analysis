@@ -129,6 +129,8 @@ process BLAST_TO_BED {
 
 }
 
+
+
 process SORT_AND_MERGE_BED {
     container "docker://quay.io/biocontainers/bedtools:2.31.1--hf5e1c6e_1"
 
@@ -159,6 +161,23 @@ process BED_TO_TABLE{
     """
 }
 
+process BED_TO_TABLE_WIDE{
+
+    container 'docker://quay.io/biocontainers/pandas:1.5.2'
+
+    input:
+    path bed
+    path cys
+    path drek
+
+    output:
+    path "CPP_sites.positions.txt"
+
+    """
+    python3 $projectDir/bin/bed2table_wide.py ${bed} ${cys} ${drek}
+    """
+}
+
 process CALC_HYDROPHOBICITY{
     container 'docker://quay.io/biocontainers/emboss:6.6.0--hdde3b0b_8'
     publishDir "${params.outDir}"
@@ -167,17 +186,18 @@ process CALC_HYDROPHOBICITY{
     path mature_seqs
 
     output:
-    path "combined_hydrophobicity.txt"
+    path "hydropathy/*"
 
     """
     mkdir -p split_sequences
+    mkdir -p hydropathy
 
     awk 'BEGIN {output_file = ""} 
          /^>/ {
              if (output_file != "") close(output_file)
              header = substr(\$0, 2)
              gsub(/ /, "_", header)
-             gsub(/[^a-zA-Z0-9_#]/, "", header)
+             gsub(/[^a-zA-Z0-9_#.,()+-]/, "", header)
              output_file = "split_sequences/" header ".fasta"
              print \$0 > output_file
          }
@@ -191,26 +211,77 @@ process CALC_HYDROPHOBICITY{
             second_line_length=\$(echo -n "\$second_line" | wc -m)
             if [ "\$second_line_length" -gt 1 ]; then
                 base_name=\$(basename "\$file" .fasta)
-                pepwindowall -sequence "\$file" -graph data -window 15 -goutfile "\$base_name"
+                pepwindowall -sequence "\$file" -graph data -window 21 -goutfile "\$base_name"
             fi
         fi
     done
 
-    for filename in *.dat; do
-        base_name="\${filename%?????}"
-
-        # Extract hydropathy values, calculate min and max, and compute the difference
-        hydropathy_values=\$(grep -v '^#' "\$filename" | awk '{print \$2}')
-        min_value=\$(echo "\$hydropathy_values" | sort -n | head -n 1)
-        max_value=\$(echo "\$hydropathy_values" | sort -n | tail -n 1)
-        difference=\$(awk -v min="\$min_value" -v max="\$max_value" 'BEGIN {print max - min}')
-
-        # Append the result to the output file
-        echo "\$base_name \$difference" >> combined_hydrophobicity.txt
+    mv *.dat hydropathy
+    
+    for file in "hydropathy"/*
+    do
+        if [ -f "\$file" ]; then
+    
+            grep -v '^#' "\$file" > temp_file && mv temp_file "\$file"
+        fi
     done
     
-    #rm *.dat
     """
 
 
 }
+
+process CREATE_SEQ_TABLES {
+    container 'docker://quay.io/biocontainers/pandas:1.5.2'
+
+    input:
+    path table_wide
+    path hydropathy
+
+    output:
+    path "tables/*"
+
+    """
+    mkdir hydropathy
+    mv *.dat hydropathy
+
+    mkdir tables
+    python3 $projectDir/bin/seqtable.py ${table_wide} hydropathy tables
+    """
+
+
+
+}
+
+process PLOT_SEQ_TABLE {
+
+    cache false
+    publishDir "/scratch/y95/pmisiun/hydro_plots", mode: 'copy'
+    container 'docker://joseespinosa/docker-r-ggplot2'
+
+    input: 
+    path seq_table
+
+    output:
+    path "${seq_table.baseName}.png"
+
+    """
+    Rscript $projectDir/bin/plot_curve.r  '${seq_table}' '${seq_table.baseName}'
+    """
+}
+
+process GET_DREK_MERS {
+
+    input:
+    path fasta
+
+    output:
+    path "${fasta.baseName}.drek.tsv"
+
+    """
+    $projectDir/bin/DREK_mers.pl ${fasta} ${fasta.baseName}.drek.tsv
+    """
+
+
+}
+

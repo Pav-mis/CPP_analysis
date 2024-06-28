@@ -6,6 +6,7 @@ df.columns = ["qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qs
 ident_filtered = df[df['pident'] > 90.00]
 cov_filtered = ident_filtered[ident_filtered['qcovs'] > 90.00]
 bed = ident_filtered[['sseqid', 'sstart', 'send']]
+bed = bed[~((df['send'] - df['sstart']) == 1)]
 print(bed)
 
 bed.to_csv("CPP_sites.bed", sep="\t", header=False, index=False)
